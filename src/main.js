@@ -1,46 +1,118 @@
-import './style.css'
-import javascriptLogo from './javascript.svg'
-import viteLogo from '/vite.svg'
-import { setupCounter } from './counter.js'
 import * as THREE from 'three';
+import * as CANNON from 'cannon';
 
-document.querySelector('#app').innerHTML = `
-  <div>
-    <a href="https://vite.dev" target="_blank">
-      <img src="${viteLogo}" class="logo" alt="Vite logo" />
-    </a>
-    <a href="https://developer.mozilla.org/en-US/docs/Web/JavaScript" target="_blank">
-      <img src="${javascriptLogo}" class="logo vanilla" alt="JavaScript logo" />
-    </a>
-    <h1>Hello Vite!</h1>
-    <div class="card">
-      <button id="counter" type="button"></button>
-    </div>
-    <p class="read-the-docs">
-      Click on the Vite logo to learn more
-    </p>
-  </div>
-`
-
-setupCounter(document.querySelector('#counter'))
-
+// Escena Three.js
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 
+// Mundo Cannon.js
+const world = new CANNON.World();
+world.gravity.set(0, -9.82, 0); // Gravedad (en m/s²)
+
+// Renderizador
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
 document.body.appendChild(renderer.domElement);
 
-const geometry = new THREE.BoxGeometry(1, 1, 1);
-const material = new THREE.MeshBasicMaterial({ color: 0x0000FF });
-const cube = new THREE.Mesh(geometry, material);
-scene.add(cube);
+// Cámara
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(-5, 5, 10);
+camera.lookAt(0, 0, 0);
 
-camera.position.z = 1.5;
+// Luz (opcional, para ver mejor los objetos)
+const light = new THREE.DirectionalLight(0xffffff, 1);
+light.position.set(5, 10, 7);
+scene.add(light);
 
-function animate() {
-    cube.rotation.x += 0.01;
-    cube.rotation.y += 0.02;
-    renderer.render(scene, camera);
+// Crear un plano (suelo)
+const groundGeometry = new THREE.PlaneGeometry(10, 10);
+const groundMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide });
+const groundMesh = new THREE.Mesh(groundGeometry, groundMaterial);
+groundMesh.rotation.x = -Math.PI / 2; // Rotar el plano para que esté horizontal
+scene.add(groundMesh);
+
+// Crear un cuerpo físico para el suelo
+const groundBody = new CANNON.Body({
+  mass: 0, // Masa 0 = objeto estático
+  shape: new CANNON.Plane(),
+});
+groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2); // Rotar el plano físico
+world.addBody(groundBody);
+
+// Crear una esfera (objeto que cae)
+const sphereGeometry = new THREE.SphereGeometry(2, 8, 8);
+const sphereMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+const sphereMesh = new THREE.Mesh(sphereGeometry, sphereMaterial);
+sphereMesh.position.set(0, 5, 0); // Posición inicial
+scene.add(sphereMesh);
+
+// Crear un cuerpo físico para la esfera
+const sphereBody = new CANNON.Body({
+  mass: 1, // Masa > 0 para que sea afectada por la gravedad
+  shape: new CANNON.Sphere(1.8), // Radio de 1
+});
+sphereBody.position.set(0, 5, 0); // Posición inicial
+world.addBody(sphereBody);
+
+// Variables para controlar el movimiento
+const forceStrength = 10; // Fuerza aplicada al mover la esfera
+const keys = {
+  ArrowUp: false,
+  ArrowDown: false,
+  ArrowLeft: false,
+  ArrowRight: false,
+};
+
+// Capturar eventos de teclado
+window.addEventListener('keydown', (event) => {
+  if (keys.hasOwnProperty(event.key)) {
+    keys[event.key] = true;
+  }
+});
+
+window.addEventListener('keyup', (event) => {
+  if (keys.hasOwnProperty(event.key)) {
+    keys[event.key] = false;
+  }
+});
+
+// Función para aplicar fuerzas según las teclas presionadas
+function applyForces() {
+  if (keys.ArrowUp) {
+    sphereBody.applyForce(new CANNON.Vec3(0, 0, -forceStrength), sphereBody.position);
+  }
+  if (keys.ArrowDown) {
+    sphereBody.applyForce(new CANNON.Vec3(0, 0, forceStrength), sphereBody.position);
+  }
+  if (keys.ArrowLeft) {
+    sphereBody.applyForce(new CANNON.Vec3(-forceStrength, 0, 0), sphereBody.position);
+  }
+  if (keys.ArrowRight) {
+    sphereBody.applyForce(new CANNON.Vec3(forceStrength, 0, 0), sphereBody.position);
+  }
 }
-renderer.setAnimationLoop(animate);
+
+// Bucle de animación
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Aplicar fuerzas según las teclas presionadas
+  applyForces();
+
+  // Actualizar el mundo físico (simulación)
+  world.step(1 / 60); // Paso de simulación (60 FPS)
+
+  // Sincronizar los objetos visuales con los cuerpos físicos
+  sphereMesh.position.copy(sphereBody.position);
+  sphereMesh.quaternion.copy(sphereBody.quaternion);
+
+  // Renderizar la escena
+  renderer.render(scene, camera);
+}
+animate();
+
+// Manejo de redimensionamiento de ventana
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
